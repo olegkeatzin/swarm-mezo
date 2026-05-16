@@ -61,6 +61,10 @@ class FedHistory:
     only when train_fedavg_mezo is called with track_consensus=True (Day-3 setup).
     They record ‖θ − θ̄‖ across all stacked params immediately before and after
     each consensus mixing round, so that log(d_after / d_before) ≈ log|λ₂(W)|.
+
+    swarm_weights is populated only when swarm_config is set: one (N,)
+    softmax-weight vector per consensus round, useful to show which agents
+    "led" the swarm over time.
     """
     eval_step:            list[int]        = field(default_factory=list)
     eval_loss:            list[float]      = field(default_factory=list)
@@ -71,6 +75,8 @@ class FedHistory:
     consensus_round:       list[int]   = field(default_factory=list)
     consensus_dist_before: list[float] = field(default_factory=list)
     consensus_dist_after:  list[float] = field(default_factory=list)
+    swarm_weights:         list[list[float]] = field(default_factory=list)
+    swarm_eval_losses:     list[list[float]] = field(default_factory=list)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -245,6 +251,7 @@ def train_fedavg_mezo(
     seed: int = 0,
     consensus_fn: Callable[[dict[str, torch.Tensor]], None] | None = None,
     track_consensus: bool = False,
+    swarm_config: "SwarmConfig | None" = None,
 ) -> FedHistory:
     """vmap-based federated MeZO: N agents run as one batched forward on a single GPU.
 
@@ -268,13 +275,19 @@ def train_fedavg_mezo(
         track_consensus: when True, records ‖θ − θ̄‖ before and after each
                          consensus round into FedHistory. Adds two distance
                          computations per round — cheap relative to a MeZO step.
+        swarm_config:    when set, replaces `consensus_fn` with PSO-style
+                         swarm mixing (θ_i ← (1−α)·θ_i + α·Σ_j softmax(−β·L)_j·θ_j).
+                         L is computed on a fixed eval batch via the same vmapped
+                         loss used for training. See src/swarm.py.
     """
     if len(train_loaders) != n_agents:
         raise ValueError(
             f"need {n_agents} train_loaders, got {len(train_loaders)}"
         )
 
-    if consensus_fn is None:
+    if swarm_config is not None and consensus_fn is not None:
+        raise ValueError("pass either consensus_fn or swarm_config, not both")
+    if consensus_fn is None and swarm_config is None:
         consensus_fn = fedavg_consensus
 
     torch.manual_seed(seed)
@@ -315,7 +328,35 @@ def train_fedavg_mezo(
             _apply_mezo_update(params, projected_grad, lr, seed_step, rng)
 
             if (step + 1) % local_steps == 0:
-                if track_consensus:
+                if swarm_config is not None:
+                    from src.swarm import swarm_consensus_step
+                    sw_ids, sw_attn, sw_labs = swarm_config.eval_batch
+                    n = ids.shape[0]
+                    sw_ids_n  = sw_ids.unsqueeze(0).expand(n, *sw_ids.shape)
+                    sw_attn_n = sw_attn.unsqueeze(0).expand(n, *sw_attn.shape)
+                    sw_labs_n = sw_labs.unsqueeze(0).expand(n, *sw_labs.shape)
+                    eval_losses = vmapped_loss(
+                        params, buffers, sw_ids_n, sw_attn_n, sw_labs_n,
+                    )                                                         # (N,)
+                    if track_consensus:
+                        from src.consensus import consensus_distance
+                        d_before = consensus_distance(params)
+                        w = swarm_consensus_step(
+                            params, eval_losses,
+                            swarm_config.alpha, swarm_config.beta,
+                        )
+                        d_after = consensus_distance(params)
+                        hist.consensus_round.append(step + 1)
+                        hist.consensus_dist_before.append(d_before)
+                        hist.consensus_dist_after.append(d_after)
+                    else:
+                        w = swarm_consensus_step(
+                            params, eval_losses,
+                            swarm_config.alpha, swarm_config.beta,
+                        )
+                    hist.swarm_weights.append(w.detach().cpu().tolist())
+                    hist.swarm_eval_losses.append(eval_losses.detach().cpu().tolist())
+                elif track_consensus:
                     from src.consensus import consensus_distance
                     d_before = consensus_distance(params)
                     consensus_fn(params)
