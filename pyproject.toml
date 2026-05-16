@@ -1,0 +1,39 @@
+[project]
+name = "federated-mezo"
+version = "0.1.0"
+description = "Federated MeZO: distributed zeroth-order fine-tuning of LLMs via SPSA + consensus mixing"
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [{ name = "Oleg Keatzin" }]
+keywords = ["mezo", "spsa", "zeroth-order", "federated-learning", "consensus", "llm-finetuning"]
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    "torch>=2.4",
+    "transformers>=4.40",
+    "datasets>=2.20",
+    "wandb>=0.17",
+    "numpy",
+    "tqdm",
+    "matplotlib",
+    "pandas",
+    "jupyter",
+    "ipykernel",
+    "ipywidgets",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+]
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cu124" }]
+
+[[tool.uv.index]]
+name = "pytorch-cu124"
+url = "https://download.pytorch.org/whl/cu124"
+explicit = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v"

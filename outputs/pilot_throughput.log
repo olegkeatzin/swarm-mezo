@@ -1,0 +1,39 @@
+[23:39:22] import datasets ...
+[23:39:23] import torch ...
+[23:39:26] device=cuda
+[23:39:26] gpu=NVIDIA GeForce RTX 4060 Ti
+[23:39:26] loading dataset + tokenizer ...
+[23:39:32] 
+[23:39:32] === N=1, 50 steps ===
+[23:39:41]   elapsed:      9.1s
+[23:39:41]   sec/step:     0.181
+[23:39:41]   peak GPU mem: 2.01 GB
+[23:39:41]   ETA @ 5000 steps: 0.25 h
+[23:39:41] 
+[23:39:41] === N=2, 50 steps ===
+[23:39:58]   elapsed:      17.4s
+[23:39:58]   sec/step:     0.349
+[23:39:58]   peak GPU mem: 3.39 GB
+[23:39:58]   ETA @ 5000 steps: 0.48 h
+[23:39:58] 
+[23:39:58] === N=4, 50 steps ===
+[23:40:36]   elapsed:      37.0s
+[23:40:36]   sec/step:     0.740
+[23:40:36]   peak GPU mem: 6.17 GB
+[23:40:36]   ETA @ 5000 steps: 1.03 h
+[23:40:36] 
+[23:40:36] === N=8, 50 steps ===
+[23:42:44]   elapsed:      128.4s
+[23:42:44]   sec/step:     2.568
+[23:42:44]   peak GPU mem: 11.72 GB
+[23:42:44]   ETA @ 5000 steps: 3.57 h
+[23:42:44] 
+[23:42:44] === summary ===
+[23:42:44]   N=1: 0.181s/step, peak 2.01 GB, ETA 0.25 h
+[23:42:44]   N=2: 0.349s/step, peak 3.39 GB, ETA 0.48 h
+[23:42:44]   N=4: 0.740s/step, peak 6.17 GB, ETA 1.03 h
+[23:42:44]   N=8: 2.568s/step, peak 11.72 GB, ETA 3.57 h
+[23:42:44]   N-sweep total ETA: 5.33 h
+[23:42:44]   + K-sweep (3 extra runs at N=4): 3.09 h
+[23:42:44]   GRAND TOTAL for run_fedavg.py: 8.42 h
+[23:42:44] saved -> C:\Users\olegk\Desktop\mezo\outputs\pilot_throughput.json

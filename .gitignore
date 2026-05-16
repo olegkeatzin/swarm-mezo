@@ -1,0 +1,26 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Experiments / caches (outputs/ and *.log are committed intentionally — see README)
+wandb/
+runs/
+checkpoints/
+.cache/
+
+# HuggingFace cache (kept local — can be large)
+hf_cache/
+
+# IDE / OS / Claude Code state
+.idea/
+.vscode/
+.claude/
+.DS_Store
+Thumbs.db
