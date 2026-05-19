@@ -17,6 +17,37 @@ decoder. `stack_module_state` deduplicates by data_ptr, which would leave
 the decoder out of the stacked params dict; functional_call would then keep
 its pre-trained values fixed and MeZO would only ever perturb the embedding.
 We break those ties before stacking with `_untie_weights_inplace`.
+
+──────────────────────────────────────────────────────────────────────────────
+Memory trade-off: vmap path vs FedKSeed-style seed-history
+──────────────────────────────────────────────────────────────────────────────
+
+This implementation stores N full weight tensors in GPU memory: O(N·M). For
+RoBERTa-base (M ≈ 125M) and N=8 in bf16 that's ~2 GB just for parameters,
+which is the price of vmap-batched parallel forwards.
+
+The FedKSeed-style alternative would store only:
+    - one shared θ₀  (O(M))
+    - per-agent history of (seed_t, projected_grad_t) scalars  (O(N·T))
+
+agent i's weights at any time are materialised as
+    θ_i^t = θ₀ + Σ_{s<t} η · g_{i,s} · z(seed_{i,s}).
+With incremental in-place updates this avoids the quadratic-in-T cost; with
+serial processing of agents inside a consensus round (one materialised θ_i
+in GPU at a time, streamed into the weighted-mean accumulator), total memory
+drops to O(M + N·T) — for our params that's ~250 MB instead of ~2 GB.
+
+The price is wall-time: N forwards must be done sequentially instead of as
+one vmap batch, plus a two-pass scheme for reputational consensus (first
+pass to collect probe-batch losses, second to stream the weighted average).
+Empirically this is ~5× slower than vmap on N=8.
+
+We chose the vmap path because N=8 / M=125M fits comfortably in 16 GB GPU
+memory and wall-time is the binding constraint at this scale. The
+seed-history path is the right move when N grows past the GPU memory
+budget (somewhere around N=32–64 for this model on this hardware) — at
+that point parallelism via vmap is impossible anyway, and serialising is
+free.
 """
 from __future__ import annotations
 

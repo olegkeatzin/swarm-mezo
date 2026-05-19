@@ -7,11 +7,14 @@ Same non-IID Dirichlet(α=0.5) partition, same N=8, same K=100 used in
 Day 3, so results are directly comparable to the {full, ring, star} runs
 already in outputs/day3_consensus.json.
 
-Sweep (β values mirror E3 on MultiWell):
-  β = 0.0    control: reputations stay equal -> exact FedAvg
-  β = 1.0    moderate selection — the predicted working window from E3
-  β = 10.0   stronger selection, still within E3's window
-  β = 100.0  extreme selection — E3 saw an information cascade here
+Sweep (β values span 4 orders of magnitude — the synthetic E3 working
+window depends on the typical inter-agent loss gap on the probe batch,
+which is unknown a priori on RoBERTa+SST-2, so we bracket aggressively):
+  β = 0.0    baseline ≡ FedAvg-MeZO (reputations stay equal -> exact FedAvg)
+  β = 0.1    likely lower edge of the working window
+  β = 0.5    middle of the suspected working window
+  β = 1.0    likely upper edge / onset of slowdown
+  β = 10.0   expected cascade regime — one agent monopolises reputation
 
 Eval batch for fitness scoring: 32 samples from train[1000:1032] — disjoint
 from training data, no leakage into val.
@@ -60,10 +63,11 @@ DIRICHLET_ALPHA = 0.5
 GAMMA_R         = 1.0
 
 REPUTATION_CONFIGS = [
-    {"beta": 0.0},
-    {"beta": 1.0},
-    {"beta": 10.0},
-    {"beta": 100.0},
+    {"beta": 0.0},      # baseline ≡ FedAvg-MeZO (control that the code path is correct)
+    {"beta": 0.1},      # likely lower edge of the working window per E3
+    {"beta": 0.5},      # middle of the suspected working window
+    {"beta": 1.0},      # likely upper edge / onset of slowdown
+    {"beta": 10.0},     # expected cascade regime
 ]
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")

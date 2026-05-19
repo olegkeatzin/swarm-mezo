@@ -79,21 +79,24 @@ class QuadraticWithWells:
                − Σ_k d_k·exp(−‖θ − c_k‖²/(2σ²))
 
     Default config in dim M=10:
-      - Global well at origin, depth 2.0  → f(0) ≈ −2.0
-      - Local well 1 at (+3, 0, ..., 0), depth 1.0  → f(c_1) ≈ +3.5
-      - Local well 2 at (−2.5, 0, ..., 0), depth 0.8  → f(c_2) ≈ +2.3
-      - σ = 0.8
+      - σ = 0.5 — narrow wells so each is a true local minimum, not just a
+        bump that the quadratic pulls past
+      - Global well at origin, depth 3.0  → f(0) ≈ −3.0
+      - Local well 1 at (+3, 0, ..., 0), depth 5.0  → local min ≈ (2.86, 0…)
+        with f ≈ −0.6
+      - Local well 2 at (−2.5, 0, ..., 0), depth 4.0 → local min ≈ (−2.39, 0…)
+        with f ≈ −0.9
 
-    With these numbers the global well is unambiguously deepest, but the
-    local wells are deep enough to trap agents that initialise on the
-    wrong side of the origin.
+    Both local minima sit well above the global minimum (Δf ≈ 2), so the
+    global is unambiguously best — but they are deep enough to trap agents
+    that descend from the wrong side.
     """
 
     def __init__(
         self,
         M: int = 10,
-        sigma: float = 0.8,
-        global_depth: float = 2.0,
+        sigma: float = 0.5,
+        global_depth: float = 3.0,
         local_centers: np.ndarray | None = None,
         local_depths: np.ndarray | None = None,
     ):
@@ -104,7 +107,7 @@ class QuadraticWithWells:
             c1 = np.zeros(M); c1[0] = 3.0
             c2 = np.zeros(M); c2[0] = -2.5
             local_centers = np.stack([c1, c2])
-            local_depths = np.array([1.0, 0.8])
+            local_depths = np.array([5.0, 4.0])
         self.local_centers = np.asarray(local_centers, dtype=float)
         self.local_depths = np.asarray(local_depths, dtype=float)
 

@@ -63,11 +63,22 @@ def test_fedavg_W_is_invariant_to_beta():
     np.testing.assert_allclose(out_a["theta_mean"], out_b["theta_mean"], atol=1e-12)
 
 
-def test_swarm_descends_loss_on_rastrigin():
-    from swarm_mezo.objectives import Rastrigin
-    obj = Rastrigin(M=10)
-    out = run_swarm(obj, N=8, n_steps=300, eta=5e-4, eps=1e-3,
-                    consensus_mode="reputation", beta=1.0, seed=0,
+def test_swarm_descends_loss_on_quadratic_with_wells():
+    from swarm_mezo.objectives import QuadraticWithWells
+    obj = QuadraticWithWells(M=10)
+    out = run_swarm(obj, N=8, n_steps=300, eta=0.01, eps=1e-3,
+                    consensus_mode="reputation", beta=0.1, seed=0,
                     init_center=np.zeros(10), init_spread=1.0)
     hist = out["history"]
     assert hist.loss_mean[-1] < hist.loss_mean[0], "swarm did not reduce loss"
+
+
+def test_quadratic_with_wells_global_at_origin():
+    """Global well at origin should give a lower loss than the local wells."""
+    from swarm_mezo.objectives import QuadraticWithWells
+    obj = QuadraticWithWells(M=10)
+    f_global = obj.value(np.zeros(10))
+    f_local1 = obj.value(obj.local_centers[0])
+    f_local2 = obj.value(obj.local_centers[1])
+    assert f_global < f_local1 - 1.0
+    assert f_global < f_local2 - 1.0

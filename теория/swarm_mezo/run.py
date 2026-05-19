@@ -70,17 +70,17 @@ def main() -> None:
     save_e2_csv(e2, RESULTS_DIR / "e2_variance_seedbank.csv")
 
     print()
-    print("Running E3 (H3: reputational beta on Rastrigin M=10 vs FedAvg-MeZO)...")
+    print("Running E3 (H3: reputational beta on QuadraticWithWells M=10 vs FedAvg-MeZO)...")
     e3 = run_e3(
-        N=8, M=10, n_steps=300, eta=5e-4, eps=1e-3, n_runs=50,
-        betas=(0.0, 0.005, 0.01, 0.02, 0.05, 0.1, 1.0, 10.0),
-        init_spread=0.7, hit_threshold=0.5, seed=0,
+        N=8, M=10, n_steps=300, eta=0.01, eps=1e-3, n_runs=50,
+        betas=(0.0, 0.05, 0.1, 0.5, 1.0, 5.0, 50.0),
+        init_spread=1.5, hit_radius=1.5, seed=0,
     )
     for bi, beta in enumerate(e3.betas):
         print(f"  beta={beta:7.2f}  rep_hit={e3.rep_hit_rate[bi]:.2f} "
               f"fedavg_hit={e3.fedavg_hit_rate[bi]:.2f}  "
-              f"rep_loss={e3.rep_mean_loss[bi]:+.4f} "
-              f"fedavg_loss={e3.fedavg_mean_loss[bi]:+.4f}")
+              f"rep_loss={e3.rep_final_loss[bi]:+.4f} "
+              f"fedavg_loss={e3.fedavg_final_loss[bi]:+.4f}")
     plot_e3(e3, RESULTS_DIR / "e3_convergence_vs_beta.png")
     save_e3_csv(e3, RESULTS_DIR / "e3_convergence_vs_beta.csv")
 
