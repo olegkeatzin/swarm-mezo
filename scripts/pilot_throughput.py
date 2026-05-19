@@ -104,6 +104,7 @@ def make_agent_loaders(n_agents):
 def make_model():
     m = AutoModelForMaskedLM.from_pretrained(
         MODEL_NAME, attn_implementation="eager",
+        dtype=torch.bfloat16,
     ).to(DEVICE)
     m.eval()
     return m

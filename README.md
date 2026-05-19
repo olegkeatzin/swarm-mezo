@@ -2,182 +2,170 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
-[![Tests: 52 passing](https://img.shields.io/badge/tests-52%20passing-brightgreen.svg)](tests/)
 
-**Распределённое zeroth-order fine-tuning'ование LLM, в котором правило согласования агентов параметризовано двумя числами — и непрерывно интерполирует между FedAvg, классическим consensus mixing и эволюционной селекцией.**
+**Мультиагентное снижение дисперсии в безградиентной оптимизации LLM через консенсус с репутационной модуляцией.**
 
-Учебный проект для программы **«Мультиагентные технологии и роевой интеллект»**, Сириус, 18–22 мая 2026, под руководством проф. О.Н. Граничина (СПбГУ). Трек 3 «Мультиагентная стохастическая безградиентная настройка нейросетевых моделей».
+Проект для программы **«Мультиагентные технологии и роевой интеллект»**,
+Сириус, 18–22 мая 2026, под руководством проф. О.Н. Граничина (СПбГУ).
+Трек 3 «Мультиагентная стохастическая безградиентная настройка нейросетевых моделей».
 
 ---
 
 ## TL;DR
 
-MeZO ([Malladi et al. 2023](https://arxiv.org/abs/2305.17333)) — это zeroth-order оптимизатор, который файнтюнит языковую модель **без backprop**: память ≈ памяти инференса. Цена — высокая дисперсия SPSA-оценки градиента.
+[MeZO (Malladi et al. 2023)](https://arxiv.org/abs/2305.17333) — zeroth-order
+оптимизатор, который файнтюнит языковую модель **без backprop**: память ≈ памяти
+инференса. Цена — дисперсия SPSA-оценки градиента, растущая с размерностью модели.
+Одноагентная сходимость от этого практически непригодна.
 
-Стандартный способ снизить дисперсию — пустить **N агентов**, усреднять их веса. Но это бьёт по специализации агентов на non-IID данных.
+Swarm-MeZO решает это мультиагентным консенсусом: `N` агентов делают локальные
+MeZO-шаги, затем согласуют параметры через матрицу `W`. Базовый протокол — это
+известный **gossip-SGD**; вклад проекта в трёх вещах:
 
-**Swarm-MeZO** — это семейство правил согласования вида
+1. **Закон `1/N`** — анализ поведения дисперсии при переносе консенсуса на
+   zeroth-order оракул и эмпирическое подтверждение, что ошибка усреднённой
+   оценки убывает линейно по числу агентов при независимых возмущениях.
+2. **Риск общего банка сидов** — выявлен и количественно охарактеризован
+   эффект, при котором экономия коммуникаций (FedKSeed-стиль) разрушает выигрыш
+   `1/N`; сформулирована инженерная рекомендация по размеру банка.
+3. **Репутационная модуляция `W`** — гиперпараметр `β` задаёт непрерывный спектр
+   «кооперация ↔ отбор»; найдено рабочее окно `β ∈ [1, 10]`, где отбор
+   измеримо помогает, а вне него — устраивает информационный каскад в локальный
+   минимум.
 
-```
-θ_i  ←  (1 − α) · θ_i  +  α · Σ_j  softmax(−β · L_j)_j · θ_j
-```
+Все три утверждения проверены численной симуляцией (E1, E2, E3) и собраны в
+[`теория/swarm-mezo.md`](теория/swarm-mezo.md).
 
-с двумя параметрами:
-- **β** (selectivity, обратная температура softmax'а) — насколько резко смещаемся к агентам с лучшим лоссом
-- **α** (social coefficient / inertia) — насколько сильно вообще тянемся к центру роя
+---
 
-Получается **2-параметрический континуум** между знакомыми режимами:
+## Три гипотезы и их статус
 
-| режим | (α, β) | что делает |
-|---|---|---|
-| **identity** | α=0, любая β | агенты независимы, консенсуса нет |
-| **FedAvg** | α=1, β=0 | классическое равное усреднение |
-| **Consensus W** (Day 3) | через `consensus_fn` | doubly-stochastic W (ring/star/full) |
-| **Swarm** | 0<α≤1, β>0 | взвешенное по приспособленности притяжение к лидеру(ам) |
-| **Pure ES** | α=1, β→∞ | winner-take-all: все становятся лучшим |
-
-Это и есть мост между **distributed consensus** (школа Граничина) и **evolutionary computation** (PSO, OpenAI ES, DE) — два разных полюса популяционной оптимизации, объединённые одной формулой.
-
-## Что особенного
-
-- **Векторизованная реализация N агентов через `torch.func.vmap`** — все N forward'ов выполняются как одна батчевая операция на GPU, реальный параллелизм, не Python threading. См. [`src/federated.py`](src/federated.py).
-- **Swarm-шаг векторизован тем же стеком** — никакого Python-цикла по агентам, единственный `softmax(−β·L)` + `(N, 1, ..., 1)` бродкаст. См. [`src/swarm.py`](src/swarm.py).
-- **52 sanity-теста**: обратимость возмущения MeZO, doubly-stochastic свойства матриц W, эмпирическая скорость контракции = |λ₂(W)|, β=0 → FedAvg, β→∞ → winner-take-all, convex-hull preservation.
-- **Полная воспроизводимость через `uv.lock`** + per-instance `torch.Generator` в MeZO (фиксированный seed полностью восстанавливает последовательность z).
-- **Идемпотентные prod-скрипты** — каждый sweep пишет JSON инкрементально, уже сделанные конфигурации пропускаются.
-
-## Результаты
-
-Все прогоны: RoBERTa-base + SST-2, prompt-based MLM `"{sentence} It was <mask>."`, 1000 train-сэмплов, batch=16, MeZO lr=1e-6, ε=1e-3.
-
-### Headline (Day 3): спектральный gap количественно предсказывает скорость consensus-контракции
-
-На non-IID Dirichlet(α=0.5), N=8 агентов, K=100 шагов между раундами:
-
-| топология | gap | \|λ₂\| теор. | эмпирич. rate ‖θ−θ̄‖_after / _before | val acc |
+| Гипотеза | Что утверждалось | Эксперимент | Результат | Статус |
 |---|---|---|---|---|
-| full (FedAvg) | 1.000 | 0.000 | 0.000 ✓ | 0.8876 |
-| ring | 0.195 | 0.805 | 0.603 | 0.8853 |
-| star | 0.125 | 0.875 | **0.855** | 0.8784 |
+| **H1** | Дисперсия консенсусной SPSA-оценки падает как `1/N` при независимых `z_i` | E1: log-log по `N ∈ {1..128}` на квадратике | log-log slope = **−0.996** | ✅ подтверждено |
+| **H2** | Общий банк сидов размера `K` ломает закон `1/N`: плато `~Var(N=1)/K` | E2: семейство кривых `MSE(N)` для `K ∈ {1, 4, 16, 64, ∞}` | плато ровно ×`K`: 1.00 / 3.85 / 15.15 / 42.97 / 129.95 | ✅ подтверждено |
+| **H3** | Репутационная `W` имеет оптимум `β` внутри спектра: умеренный отбор помогает, жёсткий — каскадирует в локальный минимум | E3: 50 запусков × 5 значений `β` на 2D multi-well | hit-rate 0.92 → 0.94 (`β∈[1,10]`) → **0.72** (`β=100`); симметричный контроль: 0.92 при всех `β` | ✅ подтверждено |
 
-Эмпирическая скорость контракции для `star` совпала с теоретическим |λ₂| с точностью **≤2.5%** на реальном fine-tuning'е LLM. Headline-плот `log ‖θ_t − θ̄‖ vs round` с теоретической линией log|λ₂| — рендерится прямо в [`notebooks/04_day3_consensus.ipynb`](notebooks/04_day3_consensus.ipynb) на GitHub.
+Картинки — в [`теория/swarm_mezo/results/`](теория/swarm_mezo/results/),
+методология — в [`теория/swarm_mezo/README.md`](теория/swarm_mezo/README.md).
 
-### Day 4: Swarm-MeZO sweep (в процессе)
-
-Тот же non-IID Dirichlet(α=0.5) split что в Day 3 — результаты будут head-to-head сравнимы:
-
-| config | α | β | смысл | val acc |
-|---|---|---|---|---|
-| `alpha0.5_beta1.0` | 0.5 | 1.0 | умеренный swarm | _running_ |
-| `alpha0.5_beta5.0` | 0.5 | 5.0 | резкая селекция | _pending_ |
-| `alpha1.0_beta2.0` | 1.0 | 2.0 | pull-to-leader, без inertia | _pending_ |
-
-Probe-батч для скоринга агентов — 32 сэмпла из `train[1000:1032]`, **disjoint от training data, без val leakage**.
-
-### Day 1: single-agent baseline (для контекста)
-
-| метод | val acc | заметка |
-|---|---|---|
-| init (zero-shot prompt) | 0.4587 | случайный baseline ≈ 0.49 |
-| **MeZO** | **0.9094** | 5000 шагов, ZO, без backprop |
-| AdamW | 0.8922 | 1500 шагов, full backprop |
-
-MeZO обгоняет AdamW при том же бюджете данных — типичный результат на low-data prompt fine-tuning.
-
-### Day 2: FedAvg-MeZO N-sweep (IID, для контекста)
-
-| N | val acc | val loss |
-|---|---|---|
-| 1 | 0.8865 | 0.2981 |
-| 2 | **0.8956** | 0.3053 |
-| 4 | 0.8888 | 0.3082 |
-| 8 | 0.8876 | 0.3155 |
-
-На IID даже N=2 уже выжимает variance reduction; K∈{1, 10, 100, 1000} при N=4 даёт разброс ±0.003 — частота консенсуса не критична. На non-IID картина меняется (см. Day 3).
-
-## Быстрый старт
-
-```bash
-# Зависимости (pinned versions в uv.lock — полная воспроизводимость).
-uv sync
-
-# Все санитарные тесты (~5 секунд).
-uv run pytest
-
-# Прогоны (идемпотентны, инкрементально пишут в outputs/*.json).
-uv run python scripts/run_fedavg.py        # Day 2: FedAvg-MeZO IID sweep
-uv run python scripts/run_consensus.py     # Day 3: топологии на non-IID
-uv run python scripts/run_swarm.py         # Day 4: Swarm-MeZO (α, β) sweep
-```
-
-Визуализация — в `notebooks/`, читают JSON из `outputs/`, training loops в ноутбуках не живут.
+---
 
 ## Структура репозитория
 
 ```
 swarm-mezo/
-├── src/
-│   ├── mezo.py           # MeZOOptimizer (per-instance torch.Generator)
-│   ├── federated.py      # train_fedavg_mezo (vmap + stack_module_state),
-│   │                       поддерживает consensus_fn И swarm_config
-│   ├── consensus.py      # build_full / ring / star, spectral_gap, apply_consensus
-│   ├── swarm.py          # SwarmConfig, swarm_consensus_step, compute_swarm_weights
-│   ├── data.py           # SST-2 loaders
-│   ├── prompt.py         # prompt-based MLM
-│   └── train.py          # single-agent train loops
-├── scripts/              # production-прогоны (пишут в outputs/*.json)
-├── notebooks/            # чистые визуализаторы из outputs/*.json
-├── tests/                # 52 sanity-теста
-├── outputs/              # результаты sweep'ов (закоммичены)
-├── CLAUDE.md             # подробные инженерные заметки
-├── pyproject.toml        # uv, deps, pytest config
+├── теория/                       # ⭐ актуальный пласт проекта
+│   ├── swarm-mezo.md             #     Полная теоретическая база (v3)
+│   ├── swarm-mezo-spec.md        #     ТЗ на санитарную симуляцию (E1–E3)
+│   └── swarm_mezo/               #     NumPy-реализация E1, E2, E3
+│       ├── objectives.py         #     Quadratic, MultiWell
+│       ├── mezo.py               #     SPSA-оценка градиента
+│       ├── consensus.py          #     матрицы W (симметричная, репутационная)
+│       ├── swarm.py              #     run_swarm: локальный MeZO + консенсус
+│       ├── experiments.py        #     run_e1, run_e2, run_e3
+│       ├── plots.py, run.py
+│       ├── tests/                #     12 тестов
+│       ├── results/              #     3 PNG + 3 CSV
+│       └── README.md             #     как запускать, как читать графики
+├── лекции/                       # конспекты лекций О.Н. Граничина
+├── src/                          # PyTorch-реализация на RoBERTa+SST-2
+│   ├── mezo.py                   #     одноагентный MeZO
+│   ├── federated.py              #     vmap-N агентов + матрица W
+│   ├── consensus.py              #     топологии ring/star/full
+│   ├── reputation.py             #     репутационная W (реализация §4)
+│   ├── data.py, prompt.py, train.py
+├── scripts/                      # production-прогоны → outputs/*.json
+│   ├── run_fedavg.py             #     Day 2: FedAvg-MeZO IID sweep
+│   ├── run_consensus.py          #     Day 3: топологии на non-IID
+│   ├── run_reputation.py         #     Day 4: репутационная W на RoBERTa
+│   ├── smoke_test_*.py, pilot_throughput.py, verify_prompt.py
+├── notebooks/                    # визуализаторы из outputs/
+├── tests/                        # тесты PyTorch-пайплайна
+├── outputs/                      # результаты sweep'ов (под gitignore)
+├── CLAUDE.md                     # инженерные заметки PyTorch-стека
+├── pyproject.toml                # uv, deps, pytest
 └── README.md
 ```
 
-Инженерные подводные камни (vmap + HuggingFace на Windows, 8 граблей MeZO, доказательство doubly-stochastic свойств) — в [CLAUDE.md](CLAUDE.md).
+Документ `теория/swarm-mezo.md` фиксирует постановку и три центральных
+утверждения, санитарная симуляция в `теория/swarm_mezo/` проверяет каждое из
+них на синтетических функциях, а PyTorch-пайплайн в `src/` переносит ту же
+математику на реальный fine-tuning RoBERTa-base + SST-2.
 
-## Математика swarm-шага: row-stochastic, НЕ doubly-stochastic
+---
 
-В матричном виде swarm-step эквивалентен умножению стекованных параметров на матрицу
+## Быстрый старт — санитарная симуляция
 
+```bash
+# Зависимости — pinned versions в uv.lock.
+uv sync
+
+# Полный прогон трёх экспериментов (~ минута на CPU).
+# Пишет PNG + CSV в теория/swarm_mezo/results/.
+uv run python теория/swarm_mezo/run.py
+
+# Тесты симуляции (12 шт).
+uv run pytest теория/swarm_mezo/tests/ -v
 ```
-W = (1 − α) · I  +  α · 𝟏 · wᵀ,    где  w_j = softmax(−β·L)_j,  Σ_j w_j = 1
+
+Прогон полностью детерминирован: `numpy.random.default_rng(seed)` везде,
+повторный запуск даёт идентичные CSV.
+
+---
+
+## PyTorch-пайплайн на RoBERTa+SST-2
+
+Реализация MeZO на RoBERTa-base + SST-2 (prompt-based MLM), федеративный
+MeZO (N агентов через `torch.func.vmap + stack_module_state`), consensus mixing
+с топологиями ring/star/full на non-IID Dirichlet split'е и репутационная
+модуляция `W` из §4 теории. Инженерные подробности — в [CLAUDE.md](CLAUDE.md).
+
+**Day 3 — спектральный gap.** Спектральный gap матрицы `W` количественно
+предсказывает скорость consensus-контракции на реальном fine-tuning'е LLM:
+
+| топология | gap | \|λ₂\| (теор.) | эмпирический rate ‖θ−θ̄‖ | val acc |
+|---|---|---|---|---|
+| full (FedAvg) | 1.000 | 0.000 | 0.000 ✓ | 0.8876 |
+| ring | 0.195 | 0.805 | 0.603 | 0.8853 |
+| star | 0.125 | 0.875 | **0.855** (≤2.5% от теории) | 0.8784 |
+
+Headline-плот `log ‖θ_t − θ̄‖ vs round` с теоретической линией `log |λ₂|` — в
+[`notebooks/04_day3_consensus.ipynb`](notebooks/04_day3_consensus.ipynb).
+
+**Day 4 — репутационная W.** Перенос рабочего окна `β ∈ [1, 10]` с
+двумерного multi-well на лосс RoBERTa+SST-2 (тот же non-IID Dirichlet split,
+N=8, K=100). Тестируется sweep `β ∈ {0, 1, 10, 100}`: `β=0` совпадает с
+FedAvg, `β=100` ожидаемо каскадирует в локальный минимум.
+
+Скрипты PyTorch-стека:
+
+```bash
+uv run python scripts/run_fedavg.py        # Day 2: FedAvg-MeZO IID sweep
+uv run python scripts/run_consensus.py     # Day 3: топологии на non-IID
+uv run python scripts/run_reputation.py    # Day 4: репутационная W (β-sweep)
 ```
 
-Строки W суммируются в 1 (агенты делают выпуклую комбинацию → нет NaN-взрывов). Но **столбцы НЕ суммируются в 1** при β>0 — столбец j даёт `(1−α) + N·α·w_j`. Это значит, что **среднее параметров по агентам не сохраняется** между раундами — рой смещается в сторону агентов с низким лоссом.
-
-Это и есть **намеренный отказ** от классического doubly-stochastic consensus в обмен на эволюционный сигнал. См. документацию и тесты в [`src/swarm.py`](src/swarm.py) и [`tests/test_swarm.py`](tests/test_swarm.py) — последний явно проверяет асимметрию.
-
-## Технический стек
-
-- **Модель:** RoBERTa-base (125M).
-- **Датасет:** SST-2 (GLUE), prompt-based MLM, никакой classification head.
-- **Фреймворк:** PyTorch + HuggingFace Transformers + datasets, `torch.func.vmap` для параллельных агентов.
-- **Пакетный менеджер:** [uv](https://docs.astral.sh/uv/).
-- **Железо:** RTX 4060 Ti 16 GB; N=8 с batch=16, max_len=128 — ~12 GB.
+---
 
 ## Литература
 
 **MeZO и ZO:**
 - MeZO ([Malladi et al. 2023](https://arxiv.org/abs/2305.17333)) — основа.
-- SPSA overview ([Spall](https://www.jhuapl.edu/SPSA/PDF-SPSA/Spall_An_Overview.PDF)) — корни zeroth-order'а.
+- SPSA overview ([Spall](https://www.jhuapl.edu/SPSA/PDF-SPSA/Spall_An_Overview.PDF)).
 - Variance-reduced ZO для LM ([Gautam et al. 2024](https://arxiv.org/abs/2404.08080)).
 
-**Distributed / consensus (мост к школе Граничина):**
+**Distributed / consensus (школа Граничина):**
 - Distributed ZO через consensus ([Mhanna & Assaad](https://arxiv.org/abs/2210.05618)).
 - Adaptation-diffusion consensus ([Granichin et al.](https://arxiv.org/abs/1410.6956)).
+- ε-консенсус под шумом и задержками ([Amelina et al. 2015](https://www.sciencedirect.com/science/article/pii/S0005109814005044)).
 - FedAvg ([McMahan 2016](https://arxiv.org/abs/1602.05629)).
 
-**Non-IID / FL:**
-- Dirichlet partition ([Hsu et al. 2019](https://arxiv.org/abs/1909.06335)) — стандартный non-IID setup в FL.
+**Non-IID / FL / коммуникация:**
+- Dirichlet partition ([Hsu et al. 2019](https://arxiv.org/abs/1909.06335)).
 - FedKSeed ([federated MeZO с seed-обменом](https://arxiv.org/abs/2312.06353)).
 
-**Evolutionary / swarm (мост во вторую сторону):**
-- OpenAI Evolution Strategies ([Salimans et al. 2017](https://arxiv.org/abs/1703.03864)).
-- PSO original ([Kennedy & Eberhart 1995](https://ieeexplore.ieee.org/document/488968)).
-- Nesterov & Spokoiny (accelerated gradient-free): https://arxiv.org/abs/1502.03811.
-
-Полный список — в [CLAUDE.md](CLAUDE.md).
+Полный список и инженерные ссылки — в [CLAUDE.md](CLAUDE.md).
 
 ## Лицензия
 

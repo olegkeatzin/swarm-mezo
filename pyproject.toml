@@ -1,11 +1,11 @@
 [project]
 name = "swarm-mezo"
 version = "0.1.0"
-description = "Swarm-MeZO: PSO-style consensus over MeZO agents — a 2-parameter family bridging FedAvg and evolutionary selection for LLM fine-tuning"
+description = "Swarm-MeZO: multi-agent variance reduction for zeroth-order LLM fine-tuning via reputation-modulated consensus"
 readme = "README.md"
 license = { file = "LICENSE" }
 authors = [{ name = "Oleg Keatzin" }]
-keywords = ["mezo", "spsa", "zeroth-order", "federated-learning", "consensus", "swarm-intelligence", "pso", "evolution-strategies", "llm-finetuning"]
+keywords = ["mezo", "spsa", "zeroth-order", "federated-learning", "consensus", "reputation", "swarm-intelligence", "llm-finetuning"]
 requires-python = ">=3.11,<3.13"
 dependencies = [
     "torch>=2.4",

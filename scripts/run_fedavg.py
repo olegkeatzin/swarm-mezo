@@ -87,6 +87,7 @@ def make_model():
     # `if` — that breaks vmap (data-dependent control flow).
     m = AutoModelForMaskedLM.from_pretrained(
         MODEL_NAME, attn_implementation="eager",
+        dtype=torch.bfloat16,
     ).to(DEVICE)
     m.eval()
     return m
