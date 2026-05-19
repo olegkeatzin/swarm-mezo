@@ -48,11 +48,11 @@ def test_reputation_update_concentrates_on_best():
     assert r_new[0] > 10 * r_new[1]
 
 
-def test_symmetric_full_W_is_invariant_to_beta():
-    """Control claim: under symmetric mode, the converged point doesn't
-    depend on beta. We hit the same theta_mean for two very different beta
-    values (beta is only consumed by reputation_W in symmetric mode it is
-    ignored)."""
+def test_fedavg_W_is_invariant_to_beta():
+    """Control claim: under symmetric FedAvg-MeZO mode (W = (1/N)·J), the
+    converged point doesn't depend on beta. We hit the same theta_mean for
+    two very different beta values (beta is only consumed by reputation_W;
+    in symmetric mode it is ignored)."""
     obj = MultiWell()
     out_a = run_swarm(obj, N=6, n_steps=100, eta=0.05, eps=5e-3,
                       consensus_mode="symmetric", beta=0.0, seed=42,
@@ -63,10 +63,11 @@ def test_symmetric_full_W_is_invariant_to_beta():
     np.testing.assert_allclose(out_a["theta_mean"], out_b["theta_mean"], atol=1e-12)
 
 
-def test_swarm_descends_loss():
-    obj = MultiWell()
-    out = run_swarm(obj, N=8, n_steps=200, eta=0.05, eps=5e-3,
+def test_swarm_descends_loss_on_rastrigin():
+    from swarm_mezo.objectives import Rastrigin
+    obj = Rastrigin(M=10)
+    out = run_swarm(obj, N=8, n_steps=300, eta=5e-4, eps=1e-3,
                     consensus_mode="reputation", beta=1.0, seed=0,
-                    init_center=np.zeros(2), init_spread=0.5)
+                    init_center=np.zeros(10), init_spread=1.0)
     hist = out["history"]
     assert hist.loss_mean[-1] < hist.loss_mean[0], "swarm did not reduce loss"

@@ -71,28 +71,32 @@ def save_e2_csv(result: E2Result, out_path: Path) -> None:
 
 
 def plot_e3(result: E3Result, out_path: Path) -> None:
-    """Two-panel plot: (a) global-min hit rate vs β, (b) final mean loss vs β."""
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11, 4.4))
+    """Mean loss trajectory per β + FedAvg baseline.
 
-    # Use symlog so β=0 is visible alongside log-spaced positive values.
-    for ax in (ax1, ax2):
-        ax.set_xscale("symlog", linthresh=0.05)
-        ax.set_xlabel("beta (reputational selection strength)")
-        ax.grid(True, which="both", ls=":", alpha=0.5)
+    Each reputational β gets its own curve; FedAvg is β-independent, so we
+    plot a single dashed reference line (using the β=0 FedAvg run, which
+    equals every other β's FedAvg run up to numerical noise).
+    """
+    fig, ax = plt.subplots(figsize=(8, 5))
+    cmap = plt.get_cmap("viridis")
+    steps = np.arange(1, result.n_steps + 1)
 
-    ax1.plot(result.betas, result.rep_hit_rate, "o-", label="reputational W")
-    ax1.plot(result.betas, result.sym_hit_rate, "s--", label="symmetric (control)")
-    ax1.set_ylabel("fraction of runs in the global minimum")
-    ax1.set_ylim(-0.02, 1.02)
-    ax1.set_title("E3: hit rate vs beta")
-    ax1.legend()
+    for bi, beta in enumerate(result.betas):
+        color = cmap(bi / max(len(result.betas) - 1, 1))
+        ax.plot(steps, result.rep_loss_curve[bi], color=color, lw=1.5,
+                label=f"β = {beta:g}")
 
-    ax2.plot(result.betas, result.rep_mean_loss, "o-", label="reputational W")
-    ax2.plot(result.betas, result.sym_mean_loss, "s--", label="symmetric (control)")
-    ax2.set_ylabel("final mean loss of swarm centroid")
-    ax2.set_title("E3: final loss vs beta (lower is better)")
-    ax2.legend()
+    ax.plot(steps, result.fedavg_loss_curve[0], "k--", lw=2,
+            label="FedAvg-MeZO (W = (1/N)·J)")
 
+    ax.set_xlabel("step")
+    ax.set_ylabel("mean swarm loss  (averaged across runs)")
+    ax.set_title(
+        f"E3: loss trajectories, QuadraticWithWells M={result.M}  "
+        f"(N={result.N}, {result.n_runs} runs)"
+    )
+    ax.grid(True, ls=":", alpha=0.5)
+    ax.legend(loc="upper right", fontsize=9)
     fig.tight_layout()
     out_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_path, dpi=130)
@@ -100,17 +104,18 @@ def plot_e3(result: E3Result, out_path: Path) -> None:
 
 
 def save_e3_csv(result: E3Result, out_path: Path) -> None:
+    """Summary table: per-β hit-rate and final loss for both modes."""
     out_path.parent.mkdir(parents=True, exist_ok=True)
     arr = np.column_stack([
         result.betas,
         result.rep_hit_rate,
-        result.sym_hit_rate,
-        result.rep_mean_loss,
-        result.sym_mean_loss,
+        result.fedavg_hit_rate,
+        result.rep_final_loss,
+        result.fedavg_final_loss,
     ])
     np.savetxt(
         out_path, arr, delimiter=",",
-        header="beta,rep_hit_rate,sym_hit_rate,rep_mean_loss,sym_mean_loss",
+        header="beta,rep_hit_rate,fedavg_hit_rate,rep_final_loss,fedavg_final_loss",
         comments="",
         fmt=["%.4f", "%.6f", "%.6f", "%.6e", "%.6e"],
     )

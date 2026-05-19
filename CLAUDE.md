@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # Swarm-MeZO — проект для программы «Мультиагентные технологии и роевой интеллект»
 
 Центр тяжести проекта — теоретический документ
-[`теория/swarm-mezo.md`](теория/swarm-mezo.md) (v3) и санитарная симуляция в
+[`теория/swarm-mezo.md`](теория/swarm-mezo.md) и санитарная симуляция в
 `теория/swarm_mezo/`. PyTorch-пайплайн в `src/` переносит ту же математику на
 RoBERTa-base + SST-2.
 
@@ -43,7 +43,7 @@ uv run python scripts/verify_prompt.py        # проверка prompt-based п
 - `notebooks/01_sanity_visual.ipynb`, `02_day1_baselines.ipynb`,
   `03_day2_fedavg.ipynb`, `04_day3_consensus.ipynb` (визуализаторы из
   `outputs/*.json`)
-- теоретический документ `теория/swarm-mezo.md` (v3) + numpy-симуляция в
+- теоретический документ `теория/swarm-mezo.md` + numpy-симуляция в
   `теория/swarm_mezo/` (E1, E2, E3 — все три гипотезы подтверждены)
 
 ## Workflow: scripts для прогонов, notebooks для визуализации
@@ -148,7 +148,7 @@ swarm-mezo/
 ├── CLAUDE.md
 ├── pyproject.toml              # зависимости (uv), pytest config
 ├── теория/
-│   ├── swarm-mezo.md           # ⭐ теоретическая база (v3)
+│   ├── swarm-mezo.md           # ⭐ теоретическая база
 │   ├── swarm-mezo-spec.md      # ТЗ на санитарную симуляцию
 │   └── swarm_mezo/             # NumPy E1/E2/E3 + results/
 ├── src/

@@ -70,25 +70,25 @@ def main() -> None:
     save_e2_csv(e2, RESULTS_DIR / "e2_variance_seedbank.csv")
 
     print()
-    print("Running E3 (H3: reputational beta on a multi-well landscape)...")
+    print("Running E3 (H3: reputational beta on Rastrigin M=10 vs FedAvg-MeZO)...")
     e3 = run_e3(
-        N=8, n_steps=250, eta=0.05, eps=5e-3, n_runs=50,
-        betas=(0.0, 0.1, 1.0, 10.0, 100.0),
-        init_spread=2.0, seed=0,
+        N=8, M=10, n_steps=300, eta=5e-4, eps=1e-3, n_runs=50,
+        betas=(0.0, 0.005, 0.01, 0.02, 0.05, 0.1, 1.0, 10.0),
+        init_spread=0.7, hit_threshold=0.5, seed=0,
     )
     for bi, beta in enumerate(e3.betas):
         print(f"  beta={beta:7.2f}  rep_hit={e3.rep_hit_rate[bi]:.2f} "
-              f"sym_hit={e3.sym_hit_rate[bi]:.2f}  "
+              f"fedavg_hit={e3.fedavg_hit_rate[bi]:.2f}  "
               f"rep_loss={e3.rep_mean_loss[bi]:+.4f} "
-              f"sym_loss={e3.sym_mean_loss[bi]:+.4f}")
+              f"fedavg_loss={e3.fedavg_mean_loss[bi]:+.4f}")
     plot_e3(e3, RESULTS_DIR / "e3_convergence_vs_beta.png")
     save_e3_csv(e3, RESULTS_DIR / "e3_convergence_vs_beta.csv")
 
     best_beta = e3.betas[int(np.argmax(e3.rep_hit_rate))]
     worst_beta = e3.betas[int(np.argmin(e3.rep_hit_rate))]
-    sym_spread = e3.sym_hit_rate.max() - e3.sym_hit_rate.min()
+    fedavg_spread = e3.fedavg_hit_rate.max() - e3.fedavg_hit_rate.min()
     print(f"H3 reputational: best beta = {best_beta}, worst beta = {worst_beta}")
-    print(f"H3 symmetric control: hit-rate spread across beta = {sym_spread:.3f} "
+    print(f"H3 FedAvg-MeZO baseline: hit-rate spread across beta = {fedavg_spread:.3f} "
           f"(should be ~0)")
 
 

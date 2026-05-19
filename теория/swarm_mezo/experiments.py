@@ -7,7 +7,7 @@ from typing import Optional
 import numpy as np
 
 from .mezo import spsa_estimate
-from .objectives import MultiWell, Quadratic
+from .objectives import MultiWell, Quadratic, QuadraticWithWells
 from .swarm import run_swarm
 
 
@@ -154,43 +154,57 @@ def run_e2(
 @dataclass
 class E3Result:
     betas: np.ndarray
-    rep_hit_rate: np.ndarray         # share of runs that reached the global well
-    sym_hit_rate: np.ndarray         # same, but for the symmetric (control) mode
-    rep_mean_loss: np.ndarray        # mean final loss of the swarm centroid
-    sym_mean_loss: np.ndarray
+    # Mean loss trajectories (averaged across n_runs), shape (len(betas), n_steps)
+    rep_loss_curve: np.ndarray
+    fedavg_loss_curve: np.ndarray
+    # Summary scalars at the end of training
+    rep_hit_rate: np.ndarray
+    fedavg_hit_rate: np.ndarray
+    rep_final_loss: np.ndarray
+    fedavg_final_loss: np.ndarray
     n_runs: int
     N: int
+    M: int
     n_steps: int
+    hit_radius: float
 
 
 def run_e3(
     N: int = 8,
-    n_steps: int = 250,
-    eta: float = 0.05,
-    eps: float = 5e-3,
+    M: int = 10,
+    n_steps: int = 300,
+    eta: float = 0.01,
+    eps: float = 1e-3,
     n_runs: int = 50,
-    betas: tuple[float, ...] = (0.0, 0.1, 1.0, 10.0, 100.0),
-    init_spread: float = 2.0,
-    init_center: tuple[float, ...] = (0.0, 0.0),
+    betas: tuple[float, ...] = (0.0, 0.05, 0.1, 0.5, 1.0, 5.0, 50.0),
+    init_spread: float = 1.5,
+    hit_radius: float = 1.5,
     seed: int = 0,
 ) -> E3Result:
-    """E3: under reputational consensus, sweep β on a non-convex (multi-well)
-    landscape and measure the fraction of swarm runs that end up in the
-    global minimum basin. Symmetric consensus is the control — its outcome
-    should be invariant to β.
-    """
-    obj = MultiWell()
-    betas_arr = np.asarray(betas, dtype=float)
-    init_center_arr = np.asarray(init_center, dtype=float)
+    """E3: under reputational consensus, sweep β on a mostly-convex landscape
+    with a deep global well at origin and two shallower local wells off-axis
+    (QuadraticWithWells in dim M; mirrors the locally-smooth structure of a
+    prompt-based fine-tuning loss). Track both final hit-rate and the full
+    mean-loss trajectory, since the curve shape — speed of descent vs plateau
+    vs cascade-induced bump — is what tells us *how* β acts.
 
-    rep_hits = np.zeros(len(betas_arr))
-    sym_hits = np.zeros(len(betas_arr))
-    rep_loss = np.zeros(len(betas_arr))
-    sym_loss = np.zeros(len(betas_arr))
+    Baseline is FedAvg-MeZO (W = (1/N)·J) — β-independent by construction.
+    Same seed per run for both modes, so the difference isolates the matrix.
+    """
+    obj = QuadraticWithWells(M=M)
+    betas_arr = np.asarray(betas, dtype=float)
+    init_center_arr = np.zeros(M)
+
+    rep_curve     = np.zeros((len(betas_arr), n_steps))
+    fedavg_curve  = np.zeros((len(betas_arr), n_steps))
+    rep_hits      = np.zeros(len(betas_arr))
+    fedavg_hits   = np.zeros(len(betas_arr))
+    rep_final     = np.zeros(len(betas_arr))
+    fedavg_final  = np.zeros(len(betas_arr))
 
     for bi, beta in enumerate(betas_arr):
-        rep_run_losses = []
-        sym_run_losses = []
+        rep_finals = []
+        fa_finals  = []
         for r in range(n_runs):
             run_seed = seed + 1 + r            # same seed across modes -> same init
             out_rep = run_swarm(
@@ -198,29 +212,37 @@ def run_e3(
                 consensus_mode="reputation", beta=beta, seed=run_seed,
                 init_center=init_center_arr, init_spread=init_spread,
             )
-            out_sym = run_swarm(
+            out_fa = run_swarm(
                 obj, N=N, n_steps=n_steps, eta=eta, eps=eps,
                 consensus_mode="symmetric", beta=beta, seed=run_seed,
                 init_center=init_center_arr, init_spread=init_spread,
             )
+            rep_curve[bi]    += np.asarray(out_rep["history"].loss_mean)
+            fedavg_curve[bi] += np.asarray(out_fa["history"].loss_mean)
             tb_rep = out_rep["theta_mean"]
-            tb_sym = out_sym["theta_mean"]
-            if obj.nearest_well(tb_rep) == obj.global_idx:
+            tb_fa  = out_fa["theta_mean"]
+            if obj.is_in_global_basin(tb_rep, radius=hit_radius):
                 rep_hits[bi] += 1
-            if obj.nearest_well(tb_sym) == obj.global_idx:
-                sym_hits[bi] += 1
-            rep_run_losses.append(obj.value(tb_rep))
-            sym_run_losses.append(obj.value(tb_sym))
-        rep_loss[bi] = float(np.mean(rep_run_losses))
-        sym_loss[bi] = float(np.mean(sym_run_losses))
+            if obj.is_in_global_basin(tb_fa, radius=hit_radius):
+                fedavg_hits[bi] += 1
+            rep_finals.append(obj.value(tb_rep))
+            fa_finals.append(obj.value(tb_fa))
+        rep_curve[bi]    /= n_runs
+        fedavg_curve[bi] /= n_runs
+        rep_final[bi]    = float(np.mean(rep_finals))
+        fedavg_final[bi] = float(np.mean(fa_finals))
 
     return E3Result(
         betas=betas_arr,
+        rep_loss_curve=rep_curve,
+        fedavg_loss_curve=fedavg_curve,
         rep_hit_rate=rep_hits / n_runs,
-        sym_hit_rate=sym_hits / n_runs,
-        rep_mean_loss=rep_loss,
-        sym_mean_loss=sym_loss,
+        fedavg_hit_rate=fedavg_hits / n_runs,
+        rep_final_loss=rep_final,
+        fedavg_final_loss=fedavg_final,
         n_runs=n_runs,
         N=N,
+        M=M,
         n_steps=n_steps,
+        hit_radius=hit_radius,
     )
