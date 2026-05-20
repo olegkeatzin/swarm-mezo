@@ -24,10 +24,15 @@ which is unknown a priori on RoBERTa+SST-2, so we bracket aggressively):
   β = 1.0    likely upper edge / onset of slowdown
   β = 10.0   expected cascade regime — one agent monopolises reputation
 
+The sweep is run twice: once with the §4 rule (mode="loss", penalty
+|L_i − L_min|, keys beta*) and once with the literal lecture rule as a
+control (mode="conformity", penalty |L_i − L̄|, keys conf_beta*). The
+contrast shows reputation must be grounded in quality, not consensus.
+
 Eval batch for fitness scoring: 32 samples from train[1000:1032] — disjoint
 from training data, no leakage into val.
 
-Results saved incrementally (idempotent — finished β's are skipped).
+Results saved incrementally (idempotent — finished runs are skipped).
 
     uv run python scripts/run_reputation.py
 """
@@ -77,11 +82,20 @@ SHARDING = os.environ.get("SHARDING", "dirichlet").lower()
 assert SHARDING in ("dirichlet", "iid"), f"bad SHARDING={SHARDING!r}"
 
 REPUTATION_CONFIGS = [
-    {"beta": 0.0},      # baseline ≡ FedAvg-MeZO (control that the code path is correct)
-    {"beta": 0.1},      # likely lower edge of the working window per E3
-    {"beta": 0.5},      # middle of the suspected working window
-    {"beta": 1.0},      # likely upper edge / onset of slowdown
-    {"beta": 10.0},     # expected cascade regime
+    # mode="loss" — §4 rule, reputation grounded in the loss gap |L_i − L_min|.
+    {"beta": 0.0,  "mode": "loss"},   # baseline ≡ FedAvg-MeZO (also checks code path)
+    {"beta": 0.1,  "mode": "loss"},   # likely lower edge of the working window per E3
+    {"beta": 0.5,  "mode": "loss"},   # middle of the suspected working window
+    {"beta": 1.0,  "mode": "loss"},   # likely upper edge / onset of slowdown
+    {"beta": 10.0, "mode": "loss"},   # expected cascade regime
+    # mode="conformity" — control branch, literal lecture rule (слайд 11):
+    # penalty |L_i − L̄| rewards proximity to consensus, not quality. Expected:
+    # herding without a descent speed-up; false-consensus cascade at large β.
+    # β=0 omitted — identical to FedAvg baseline above.
+    {"beta": 0.1,  "mode": "conformity"},
+    {"beta": 0.5,  "mode": "conformity"},
+    {"beta": 1.0,  "mode": "conformity"},
+    {"beta": 10.0, "mode": "conformity"},
 ]
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -265,16 +279,17 @@ print(f"Day-5 reputation sweep (N={N_AGENTS}, K={LOCAL_STEPS}, steps={TOTAL_STEP
 print("=" * 60)
 
 for cfg in REPUTATION_CONFIGS:
-    key = f"beta{cfg['beta']}"
+    mode = cfg.get("mode", "loss")
+    key = f"beta{cfg['beta']}" if mode == "loss" else f"conf_beta{cfg['beta']}"
     if key in results["runs"]:
         prev_acc = results["runs"][key]["eval_acc"][-1]
         print(f"{key}: already done (acc={prev_acc:.4f}), skipping.")
         continue
 
-    print(f"\n--- {key}  (β={cfg['beta']}, γ_r={GAMMA_R}) ---")
+    print(f"\n--- {key}  (β={cfg['beta']}, γ_r={GAMMA_R}, mode={mode}) ---")
 
     rep_cfg = ReputationConfig(
-        eval_batch=probe_batch, beta=cfg["beta"], gamma_r=GAMMA_R,
+        eval_batch=probe_batch, beta=cfg["beta"], gamma_r=GAMMA_R, mode=mode,
     )
 
     torch.manual_seed(SEED)
@@ -295,7 +310,7 @@ for cfg in REPUTATION_CONFIGS:
         reputation_config=rep_cfg,
     )
 
-    results["runs"][key] = {"beta": cfg["beta"], **hist_to_dict(hist)}
+    results["runs"][key] = {"beta": cfg["beta"], "mode": mode, **hist_to_dict(hist)}
     print(f"{key} final val acc: {hist.eval_acc[-1]:.4f}")
 
     if hist.reputations:

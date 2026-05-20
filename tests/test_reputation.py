@@ -75,3 +75,29 @@ def test_renormalisation_keeps_mean_one():
     losses = torch.tensor([0.1, 0.4, 0.2, 0.7])
     new = update_reputations(r, losses, beta=2.0)
     assert abs(new.mean().item() - 1.0) < 1e-6
+
+
+# ── conformity control branch (лекция2.md слайд 11) ───────────────────────────
+
+def test_conformity_equal_losses_is_fedavg():
+    """All losses equal -> every agent sits on the consensus L̄ -> zero
+    penalty -> reputations stay uniform, identical to FedAvg."""
+    r = torch.ones(4)
+    losses = torch.full((4,), 0.7)
+    new = update_reputations(r, losses, beta=10.0, mode="conformity")
+    assert torch.allclose(new, torch.ones(4), atol=1e-6)
+
+
+def test_conformity_rewards_typical_not_best():
+    """The key contrast with mode='loss': conformity crowns the agent closest
+    to the weighted-mean loss, even demoting the actual loss winner when it is
+    atypical. Here agent 0 has the best loss but is the farthest from L̄."""
+    r = torch.ones(4)
+    losses = torch.tensor([0.0, 0.5, 0.6, 0.6])     # agent 0 = loss winner
+
+    w_loss = reputation_weights(update_reputations(r, losses, beta=5.0, mode="loss"))
+    w_conf = reputation_weights(update_reputations(r, losses, beta=5.0, mode="conformity"))
+
+    assert w_loss.argmax().item() == 0              # loss mode crowns the best
+    assert w_conf.argmax().item() == 1              # conformity crowns the typical
+    assert w_conf[0].item() < w_conf.mean().item()  # loss winner demoted as atypical
