@@ -35,15 +35,16 @@ uv run python scripts/verify_prompt.py        # проверка prompt-based п
 - санитарные тесты (`tests/test_perturbation.py`, `test_toy.py`,
   `test_gradient_sign.py`), `tests/test_federated_vmap.py` (8 тестов на
   vmap-helpers), `tests/test_consensus.py` (30 тестов на doubly-stochastic /
-  спектр / contraction rate), `tests/test_reputation.py` (6 тестов на
-  репутационную W)
+  спектр / contraction rate), `tests/test_reputation.py` (8 тестов на
+  репутационную W, включая контрольную ветку conformity)
 - `scripts/run_fedavg.py`, `scripts/run_consensus.py`, `scripts/run_reputation.py`,
   `scripts/verify_prompt.py`, `scripts/smoke_test_vmap.py`,
   `scripts/smoke_test_reputation.py`, `scripts/pilot_throughput.py`
 - `notebooks/01_sanity_visual.ipynb`, `02_day1_baselines.ipynb`,
   `03_day2_fedavg.ipynb`, `04_day3_consensus.ipynb`,
-  `05_day4_reputation.ipynb` (визуализаторы из `outputs/*.json`),
-  `colab_run_reputation.ipynb` (прогон Day 4 в Colab)
+  `05_day4_reputation.ipynb`, `06_reputation_iid.ipynb`,
+  `07_conformity_control.ipynb` (визуализаторы из `outputs/*.json`),
+  `colab_run_reputation.ipynb`, `colab_run_conformity.ipynb` (прогоны в Colab)
 - теоретический документ `теория/swarm-mezo.md` + numpy-симуляция в
   `теория/swarm_mezo/` (E1, E2, E3 — все три гипотезы подтверждены)
 
@@ -92,8 +93,9 @@ uv run python scripts/verify_prompt.py        # проверка prompt-based п
 **Репутационная модуляция W (§4 теории, E3):**
 - `W_ij = r_j / Σ_k r_k` — row-stochastic, все строки одинаковые → за один шаг все агенты приходят в общий взвешенный центроид `(r^⊤ θ) / Σr`.
 - Закон эволюции: `r_i ← r_i / (γ_r + β · |L_i − L_min|)`.
-- Спектр по `β`: `β=0` → симметричный FedAvg (модель Де Гроота, ровно `W = (1/N)·J`); `β ∈ [0.05, 0.5]` (для E3-геометрии) — рабочее окно с ускорением ранней сходимости ≈30% над FedAvg; большие `β` — замедление вплоть до почти-каскада.
+- Спектр по `β`: `β=0` → симметричный FedAvg (модель Де Гроота, ровно `W = (1/N)·J`); на синтетике E3 окно `β ∈ [0.05, 0.5]` давало ускорение ≈30%, но на RoBERTa+SST-2 (Day 4, §4.6–4.7 теории) это окно **не воспроизвелось** — ни на non-IID, ни на IID; рабочий режим — `β=0`. Большие `β` дают каскад.
 - Сходимость опирается на вектор Перрона row-stochastic матрицы (простое собственное значение 1, остальные внутри единичного круга при наличии остовного дерева).
+- Две ветки закона репутации: `mode="loss"` — `penalty=|L_i−L_min|` (заземление на качество, §4.2); `mode="conformity"` — `penalty=|L_i−L̄|` (дословное правило лекции, контроль). Conformity строго хуже loss во всех точках и каскадит сильнее — см. §4.8 теории.
 
 **Federated learning (для контекста):**
 - FedAvg (McMahan 2016) — каждый клиент делает local SGD-шаги, затем усреднение.
@@ -140,7 +142,7 @@ Production-пайплайн `src/federated.py` пробивается тремя
 Для federated части:
 - `N` (число агентов) = 2, 4, 8
 - `local_steps` (шагов между consensus-раундами) = 1, 10, 50, 200, 1000 — главный гиперпараметр, отвечающий за explore/exploit trade-off
-- `β` (репутационная модуляция, см. `src/reputation.py`) — рабочее окно `[0.05, 0.5]` по E3 (зависит от типичного разброса лоссов), `β=0` совпадает с FedAvg, большие `β` замедляют сходимость
+- `β` (репутационная модуляция, см. `src/reputation.py`) — на синтетике E3 окно `[0.05, 0.5]`, но на RoBERTa+SST-2 рабочего окна нет (Day 4): `β=0` (FedAvg) — рекомендуемый режим, `β>0` нейтрален или вредит
 
 ## Структура репозитория
 
@@ -156,14 +158,14 @@ swarm-mezo/
 │   ├── mezo.py                 # MeZOOptimizer: per-instance torch.Generator
 │   ├── federated.py            # train_fedavg_mezo: N агентов через vmap
 │   ├── consensus.py            # матрицы W: ring, star, full + apply_consensus
-│   ├── reputation.py           # репутационная W (реализация §4 теории)
+│   ├── reputation.py           # репутационная W (§4): mode=loss / mode=conformity
 │   ├── data.py                 # SST2Loaders
 │   ├── prompt.py               # prompt-based MLM
 │   └── train.py                # train_mezo, train_adamw, evaluate; TrainHistory
 ├── scripts/
 │   ├── run_fedavg.py           # Day 2: N-sweep и K-sweep
 │   ├── run_consensus.py        # Day 3: ring/star/full на non-IID
-│   ├── run_reputation.py       # Day 4: β-sweep с репутационной W
+│   ├── run_reputation.py       # Day 4: β-sweep, ветки loss + conformity, IID через SHARDING=iid
 │   ├── smoke_test_vmap.py, smoke_test_reputation.py
 │   ├── verify_prompt.py, pilot_throughput.py
 ├── tests/
@@ -173,14 +175,17 @@ swarm-mezo/
 │   ├── test_gradient_sign.py   # Test C: <SPSA-оценка, истинный градиент> > 0
 │   ├── test_federated_vmap.py  # vmap-helpers
 │   ├── test_consensus.py       # топологии W, спектральный gap
-│   └── test_reputation.py      # репутационная W: row-stochastic, β=0=FedAvg, β→∞ winner-take-all
+│   └── test_reputation.py      # репутационная W: row-stochastic, β=0=FedAvg, β→∞ winner-take-all, conformity-контроль
 ├── notebooks/
 │   ├── 01_sanity_visual.ipynb
 │   ├── 02_day1_baselines.ipynb
 │   ├── 03_day2_fedavg.ipynb
 │   ├── 04_day3_consensus.ipynb
 │   ├── 05_day4_reputation.ipynb
-│   └── colab_run_reputation.ipynb   # прогон Day 4 в Google Colab
+│   ├── 06_reputation_iid.ipynb       # Day 4 IID-контроль
+│   ├── 07_conformity_control.ipynb   # ветка loss vs conformity
+│   ├── colab_run_reputation.ipynb    # прогон Day 4 в Google Colab
+│   └── colab_run_conformity.ipynb    # прогон conformity-ветки в Colab
 └── outputs/                    # JSON с результатами (gitignore)
 ```
 
@@ -199,10 +204,15 @@ swarm-mezo/
 - Топологии: ring, star, full. Данные шардятся non-IID через Dirichlet(α=0.5).
 - Headline-плот: log ‖θ − θ̄‖ vs round для каждой топологии с теоретической линией log|λ₂| — спектральный gap эмпирически.
 
-### День 4 (четверг, 21 мая): Репутационная W
+### День 4 (четверг, 21 мая): Репутационная W — выполнен, результат отрицательный
 - Закон `r_i ← r_i/(γ_r + β·|L_i − L_min|)`, `W_ij = r_j/Σr` (см. `src/reputation.py`).
-- Перенос результата E3 (рабочее окно по `β`, ускорение раннего descent) с QuadraticWithWells M=10 на реальный лосс RoBERTa+SST-2.
-- Sweep `β ∈ {0, 1, 10, 100}` на том же non-IID Dirichlet split'е что и Day 3.
+- Sweep `β ∈ {0, 0.1, 0.5, 1, 10}` на non-IID Dirichlet split'е (как Day 3) и
+  IID-контроль (`SHARDING=iid`).
+- **Результат:** окно `β` из E3 на RoBERTa+SST-2 не воспроизвелось — ни на
+  non-IID (каскад, −8 п.п.), ни на IID (ничья с FedAvg). Рекомендуемый режим
+  `β=0`. Полный разбор — §4.6–4.7 теории.
+- Контрольная ветка `mode="conformity"` (дословное правило лекции
+  `penalty=|L_i−L̄|`): строго хуже loss-ветки, каскадит сильнее — §4.8 теории.
 
 ### День 5 (пятница, 22 мая): Презентация
 - 10 слайдов, 10 минут.
@@ -251,7 +261,7 @@ def step(self, loss_fn):
 - **Test B** (`test_toy.py`) — MeZO за 3000 шагов снижает loss линейной регрессии минимум вдвое.
 - **Test C** (`test_gradient_sign.py`) — по 200 seed'ам `<projected_grad · z, истинный_градиент>` > 0 в среднем.
 
-Дополнительно: `test_consensus.py` (30 тестов на матрицы W), `test_federated_vmap.py` (8 тестов на vmap-helpers), `test_reputation.py` (6 тестов на репутационную W).
+Дополнительно: `test_consensus.py` (30 тестов на матрицы W), `test_federated_vmap.py` (8 тестов на vmap-helpers), `test_reputation.py` (8 тестов на репутационную W, включая контрольную ветку conformity).
 
 ## Concept map (что с чем связано)
 
@@ -263,7 +273,7 @@ def step(self, loss_fn):
   - Кольцо / звезда → меньший спектральный gap, медленнее consensus
   - Репутационная `W_ij = r_j/Σr` → row-stochastic, точка консенсуса смещена к лучшим
 - **Спектральный gap** управляет скоростью сходимости consensus-части
-- **`β`** в репутационной W задаёт спектр «кооперация ↔ отбор»; рабочее окно `[0.05, 0.5]` (для E3-геометрии)
+- **`β`** в репутационной W задаёт спектр «кооперация ↔ отбор»; окно `[0.05, 0.5]` есть на синтетике E3, но на RoBERTa+SST-2 не воспроизводится — рабочий режим `β=0` (Day 4)
 - **`local_steps`** управляет балансом коммуникация vs локальный прогресс
 - **Consensus mixing = variance reduction** для SPSA-оценок (закон `1/N`, E1)
 
@@ -275,7 +285,7 @@ def step(self, loss_fn):
 
 **Связь с курсом:** «Consensus mixing — это распределённая стохастическая аппроксимация в духе работ О.Н. Граничина. Спектральный gap матрицы W управляет скоростью согласования; в Day 3 я показываю эту связь эмпирически на LLM (rate ‖θ−θ̄‖ совпадает с |λ₂| в пределах 2.5% для star-топологии).»
 
-**Про роевой интеллект:** «Репутационная модуляция `W_ij = r_j/Σr` с гиперпараметром `β` — это непрерывный спектр между чистой кооперацией (`β=0` = модель Де Гроота, FedAvg) и жёстким отбором (`β→∞` = `gbest` из PSO). E3 на гладком LM-подобном ландшафте (QuadraticWithWells M=10) показывает рабочее окно `β ∈ [0.05, 0.5]`, где ранний descent ускоряется на ≈30% над FedAvg-MeZO; при больших `β` сходимость замедляется вплоть до почти-каскада. Day 4 переносит этот результат на RoBERTa+SST-2.»
+**Про роевой интеллект:** «Репутационная модуляция `W_ij = r_j/Σr` с гиперпараметром `β` — это непрерывный спектр между чистой кооперацией (`β=0` = модель Де Гроота, FedAvg) и жёстким отбором (`β→∞` = `gbest` из PSO). E3 на гладком синтетическом ландшафте (QuadraticWithWells M=10) показывает рабочее окно `β ∈ [0.05, 0.5]` с ускорением раннего descent ≈30%. Но Day 4 — честный отрицательный результат: на RoBERTa+SST-2 это окно не воспроизводится. На non-IID отбор по probe-лоссу путает фитнес с репрезентативностью шарда и даёт каскад (−8 п.п.); IID-контроль каскад убирает, подтверждая диагноз, но окна нет и там. Контрольная ветка `mode="conformity"` (дословное правило лекции, штраф за отклонение от консенсуса вместо качества) — строго хуже и каскадит сильнее, что показывает: заземление репутации на лосс — это суть метода, а не косметика. Рекомендуемый режим — `β=0` (FedAvg-MeZO).»
 
 **Про коммуникацию:** «В MeZO каждый шаг полностью описывается двумя числами — projected_grad и seed. Это означает потенциал коммуникации в несколько байт на раунд, что на порядки меньше FedAvg. E2 количественно показывает: при общем банке сидов размера `K` плато MSE ровно ×`K` — это конкретное требование к реализации FedKSeed.»
 
