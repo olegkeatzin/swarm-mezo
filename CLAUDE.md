@@ -21,6 +21,7 @@ uv run python теория/swarm_mezo/run.py        # прогон E1/E2/E3 (~1 
 uv run python scripts/run_fedavg.py           # Day 2: FedAvg-MeZO → outputs/day2_fedavg.json
 uv run python scripts/run_consensus.py        # Day 3: топологии на non-IID → outputs/day3_consensus.json
 uv run python scripts/run_reputation.py       # Day 4: репутационная W → outputs/day5_reputation.json
+uv run python scripts/run_trimmed.py          # Day 5: trimmed-mean W → outputs/day5_trimmed.json
 uv run python scripts/verify_prompt.py        # проверка prompt-based подхода
 ```
 
@@ -35,16 +36,17 @@ uv run python scripts/verify_prompt.py        # проверка prompt-based п
 - санитарные тесты (`tests/test_perturbation.py`, `test_toy.py`,
   `test_gradient_sign.py`), `tests/test_federated_vmap.py` (8 тестов на
   vmap-helpers), `tests/test_consensus.py` (30 тестов на doubly-stochastic /
-  спектр / contraction rate), `tests/test_reputation.py` (8 тестов на
-  репутационную W, включая контрольную ветку conformity)
+  спектр / contraction rate), `tests/test_reputation.py` (12 тестов на
+  репутационную W, включая контрольные ветки conformity и trimmed-mean)
 - `scripts/run_fedavg.py`, `scripts/run_consensus.py`, `scripts/run_reputation.py`,
-  `scripts/verify_prompt.py`, `scripts/smoke_test_vmap.py`,
+  `scripts/run_trimmed.py`, `scripts/verify_prompt.py`, `scripts/smoke_test_vmap.py`,
   `scripts/smoke_test_reputation.py`, `scripts/pilot_throughput.py`
 - `notebooks/01_sanity_visual.ipynb`, `02_day1_baselines.ipynb`,
   `03_day2_fedavg.ipynb`, `04_day3_consensus.ipynb`,
   `05_day4_reputation.ipynb`, `06_reputation_iid.ipynb`,
   `07_conformity_control.ipynb` (визуализаторы из `outputs/*.json`),
-  `colab_run_reputation.ipynb`, `colab_run_conformity.ipynb` (прогоны в Colab)
+  `colab_run_reputation.ipynb`, `colab_run_reputation_iid.ipynb`,
+  `colab_run_conformity.ipynb`, `colab_run_trimmed.ipynb` (прогоны в Colab)
 - теоретический документ `теория/swarm-mezo.md` + numpy-симуляция в
   `теория/swarm_mezo/` (E1, E2, E3 — все три гипотезы подтверждены)
 
@@ -158,7 +160,7 @@ swarm-mezo/
 │   ├── mezo.py                 # MeZOOptimizer: per-instance torch.Generator
 │   ├── federated.py            # train_fedavg_mezo: N агентов через vmap
 │   ├── consensus.py            # матрицы W: ring, star, full + apply_consensus
-│   ├── reputation.py           # репутационная W (§4): mode=loss / mode=conformity
+│   ├── reputation.py           # W (§4): mode=loss / conformity + trim_k (robust-agg)
 │   ├── data.py                 # SST2Loaders
 │   ├── prompt.py               # prompt-based MLM
 │   └── train.py                # train_mezo, train_adamw, evaluate; TrainHistory
@@ -166,6 +168,7 @@ swarm-mezo/
 │   ├── run_fedavg.py           # Day 2: N-sweep и K-sweep
 │   ├── run_consensus.py        # Day 3: ring/star/full на non-IID
 │   ├── run_reputation.py       # Day 4: β-sweep, ветки loss + conformity, IID через SHARDING=iid
+│   ├── run_trimmed.py          # Day 5: trimmed-mean W, IID, сетка β × trim_k∈{2,4}
 │   ├── smoke_test_vmap.py, smoke_test_reputation.py
 │   ├── verify_prompt.py, pilot_throughput.py
 ├── tests/
@@ -175,7 +178,7 @@ swarm-mezo/
 │   ├── test_gradient_sign.py   # Test C: <SPSA-оценка, истинный градиент> > 0
 │   ├── test_federated_vmap.py  # vmap-helpers
 │   ├── test_consensus.py       # топологии W, спектральный gap
-│   └── test_reputation.py      # репутационная W: row-stochastic, β=0=FedAvg, β→∞ winner-take-all, conformity-контроль
+│   └── test_reputation.py      # репутационная W: row-stochastic, β=0=FedAvg, β→∞ winner-take-all, conformity- и trimmed-контроль
 ├── notebooks/
 │   ├── 01_sanity_visual.ipynb
 │   ├── 02_day1_baselines.ipynb
@@ -185,7 +188,9 @@ swarm-mezo/
 │   ├── 06_reputation_iid.ipynb       # Day 4 IID-контроль
 │   ├── 07_conformity_control.ipynb   # ветка loss vs conformity
 │   ├── colab_run_reputation.ipynb    # прогон Day 4 в Google Colab
-│   └── colab_run_conformity.ipynb    # прогон conformity-ветки в Colab
+│   ├── colab_run_reputation_iid.ipynb # прогон Day 4 IID-контроля в Colab
+│   ├── colab_run_conformity.ipynb    # прогон conformity-ветки в Colab
+│   └── colab_run_trimmed.ipynb       # прогон trimmed-mean ветки в Colab
 └── outputs/                    # JSON с результатами (gitignore)
 ```
 
@@ -261,7 +266,7 @@ def step(self, loss_fn):
 - **Test B** (`test_toy.py`) — MeZO за 3000 шагов снижает loss линейной регрессии минимум вдвое.
 - **Test C** (`test_gradient_sign.py`) — по 200 seed'ам `<projected_grad · z, истинный_градиент>` > 0 в среднем.
 
-Дополнительно: `test_consensus.py` (30 тестов на матрицы W), `test_federated_vmap.py` (8 тестов на vmap-helpers), `test_reputation.py` (8 тестов на репутационную W, включая контрольную ветку conformity).
+Дополнительно: `test_consensus.py` (30 тестов на матрицы W), `test_federated_vmap.py` (8 тестов на vmap-helpers), `test_reputation.py` (12 тестов на репутационную W, включая контрольные ветки conformity и trimmed-mean).
 
 ## Concept map (что с чем связано)
 

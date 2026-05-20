@@ -29,6 +29,20 @@ Two reward modes (the `mode` argument):
       cascade at large β (слайд 28). It demonstrates *why* the loss-grounded
       rule is the actual contribution.
 
+The `trim_k` modifier (robust aggregation, composes with any mode):
+      After the mixing row w is built, the trim_k highest-loss agents have
+      their weight zeroed and w is renormalised over the survivors. This is
+      the *stable* form of "steer away from bad agents": true repulsion needs
+      W_ij < 0, which destroys the row-stochasticity the Day-3 spectral
+      contraction relies on (|λ_k| can leave the unit circle → divergence).
+      Dropping the worst keeps W non-negative and row-stochastic, so λ=1 and
+      the convergence guarantee survive — the trimmed-mean / Krum family of
+      Byzantine-robust FL aggregators (Yin et al. 2018), keyed on probe loss.
+      It composes with β: β=0 + trim_k>0 is a plain trimmed mean (uniform
+      over survivors); β>0 + trim_k>0 is reputation-weighting among the
+      survivors. trim_k=0 leaves w untouched. Trimming is by current-round
+      loss rank, so a temporarily-bad agent that recovers is re-included.
+
 Predicted regimes (from E3 on 2D multi-well), mode="loss":
 - β = 0       → all reputations stay equal → W = (1/N)·J → exact FedAvg.
 - β ∈ [1, 10] → measurable improvement over FedAvg (working window).
@@ -61,6 +75,8 @@ class ReputationConfig:
     beta:    float = 1.0
     gamma_r: float = 1.0
     mode:    str   = "loss"      # "loss" (§4) or "conformity" (lecture control)
+    trim_k:  int   = 0           # robust-agg modifier: # of worst-loss agents
+                                 # dropped from the centroid (0 ≡ no trimming)
 
 
 @torch.no_grad()
@@ -104,6 +120,38 @@ def reputation_weights(reputations: torch.Tensor) -> torch.Tensor:
 
 
 @torch.no_grad()
+def trim_weights(
+    weights: torch.Tensor, losses: torch.Tensor, trim_k: int,
+) -> torch.Tensor:
+    """Zero the trim_k highest-loss agents' weights and renormalise.
+
+    Robust-aggregation modifier on top of any mixing row. The worst trim_k
+    agents (by probe loss) are dropped from the centroid; the rest keep their
+    relative weights and are renormalised to sum 1. Composes with reputation:
+    β=0 → uniform survivors (plain trimmed mean), β>0 → reputation-weighted
+    among survivors. W stays non-negative and row-stochastic (trimming only
+    sets entries to 0), so the Day-3 spectral contraction is intact.
+    Trimmed-mean / Krum family of Byzantine-robust FL aggregators (Yin et al.
+    2018). trim_k=0 returns `weights` unchanged.
+
+    Ties are broken by torch.topk's index order — harmless, the dropped agents
+    have (near-)identical loss anyway.
+    """
+    if trim_k == 0:
+        return weights
+    n = weights.numel()
+    if not 0 < trim_k < n:
+        raise ValueError(f"trim_k={trim_k} must be in [0, {n})")
+    w = weights.clone()
+    worst = torch.topk(losses.float(), trim_k).indices
+    w[worst] = 0.0
+    total = w.sum()
+    if total <= 0:
+        raise ValueError("trim_k removed all mixing weight")
+    return w / total
+
+
+@torch.no_grad()
 def reputation_consensus_step(
     params: dict[str, torch.Tensor],
     losses: torch.Tensor,
@@ -111,18 +159,24 @@ def reputation_consensus_step(
     beta: float,
     gamma_r: float = 1.0,
     mode: str = "loss",
+    trim_k: int = 0,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Apply one reputational consensus step in-place on stacked params.
 
     Mathematically:
         r ← update_reputations(r, L, β, γ_r, mode)
         w_j = r_j / Σ r
+        w  ← trim_weights(w, L, trim_k)   (drop worst trim_k, renormalise)
         θ_i ← Σ_j w_j · θ_j      (every agent jumps to the weighted centroid)
 
-    Returns the (updated reputations, mixing weights) for logging.
+    The reputation state `r` always tracks all N agents (memory intact, so a
+    trimmed agent can recover); trim_k only masks the *applied* mixing row w.
+
+    Returns the (updated reputations, applied mixing weights) for logging.
     """
     new_reps = update_reputations(reputations, losses, beta, gamma_r, mode)
     w = reputation_weights(new_reps)
+    w = trim_weights(w, losses, trim_k)
     for p in params.values():
         bcast = w.view(-1, *([1] * (p.ndim - 1)))               # (N, 1, ..., 1)
         theta_bar = (bcast * p).sum(dim=0, keepdim=True)        # (1, *)

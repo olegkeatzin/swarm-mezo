@@ -383,7 +383,7 @@ def train_fedavg_mezo(
                         reputations, w = reputation_consensus_step(
                             params, eval_losses, reputations,
                             reputation_config.beta, reputation_config.gamma_r,
-                            reputation_config.mode,
+                            reputation_config.mode, reputation_config.trim_k,
                         )
                         d_after = consensus_distance(params)
                         hist.consensus_round.append(step + 1)
@@ -393,7 +393,7 @@ def train_fedavg_mezo(
                         reputations, w = reputation_consensus_step(
                             params, eval_losses, reputations,
                             reputation_config.beta, reputation_config.gamma_r,
-                            reputation_config.mode,
+                            reputation_config.mode, reputation_config.trim_k,
                         )
                     hist.reputations.append(reputations.detach().cpu().tolist())
                     hist.consensus_eval_losses.append(eval_losses.detach().cpu().tolist())

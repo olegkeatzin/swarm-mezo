@@ -12,6 +12,7 @@ import torch
 from src.reputation import (
     reputation_consensus_step,
     reputation_weights,
+    trim_weights,
     update_reputations,
 )
 
@@ -101,3 +102,67 @@ def test_conformity_rewards_typical_not_best():
     assert w_loss.argmax().item() == 0              # loss mode crowns the best
     assert w_conf.argmax().item() == 1              # conformity crowns the typical
     assert w_conf[0].item() < w_conf.mean().item()  # loss winner demoted as atypical
+
+
+# ── trim_k modifier (robust aggregation — Yin et al. 2018) ────────────────────
+
+def test_trim_k_zero_is_identity():
+    """trim_k=0 leaves the mixing row untouched."""
+    w   = torch.tensor([0.4, 0.1, 0.3, 0.2])
+    out = trim_weights(w, losses=torch.tensor([0.1, 0.9, 0.3, 0.5]), trim_k=0)
+    assert torch.allclose(out, w)
+
+
+def test_trim_drops_worst_and_renormalises():
+    """The trim_k highest-loss agents get weight 0; survivors keep their
+    relative weights and are renormalised; the row stays row-stochastic."""
+    w      = torch.tensor([0.4, 0.1, 0.3, 0.1, 0.1])
+    losses = torch.tensor([0.1, 0.9, 0.3, 0.7, 0.2])  # worst-2 = idx 1, 3
+    out = trim_weights(w, losses, trim_k=2)
+    assert out[1].item() == 0.0 and out[3].item() == 0.0
+    assert abs(out.sum().item() - 1.0) < 1e-6
+    assert (out >= 0).all()
+    # survivors keep their relative proportions (0.4 : 0.3 : 0.1)
+    assert torch.allclose(out[[0, 2, 4]], torch.tensor([0.5, 0.375, 0.125]), atol=1e-6)
+
+
+def test_beta_zero_plus_trim_is_plain_trimmed_mean():
+    """β=0 → uniform reputations → trim_k>0 gives a uniform mean over the
+    N−trim_k survivors (the plain trimmed mean)."""
+    params = {"w": torch.tensor([
+        [1.0, 1.0],
+        [1.0, 1.0],
+        [1.0, 1.0],
+        [99.0, 99.0],   # bad agent — would wreck a plain FedAvg mean
+    ])}
+    losses = torch.tensor([0.1, 0.2, 0.15, 5.0])  # agent 3 = worst
+    reps = torch.ones(4)
+    new_reps, w = reputation_consensus_step(
+        params, losses, reps, beta=0.0, mode="loss", trim_k=1,
+    )
+    for i in range(4):
+        assert torch.allclose(params["w"][i], torch.tensor([1.0, 1.0]), atol=1e-6)
+    assert w[3].item() == 0.0
+    assert torch.allclose(w[[0, 1, 2]], torch.full((3,), 1 / 3), atol=1e-6)
+
+
+def test_trim_composes_with_reputation():
+    """β>0 + trim_k>0: the worst agent is dropped, and among survivors the
+    reputation weighting still favours the lowest loss."""
+    reps   = torch.ones(4)
+    losses = torch.tensor([0.0, 0.3, 0.5, 5.0])  # agent 3 = worst, agent 0 = best
+    new_reps = update_reputations(reps, losses, beta=2.0, mode="loss")
+    w = trim_weights(reputation_weights(new_reps), losses, trim_k=1)
+    assert w[3].item() == 0.0                    # worst dropped
+    assert w[0].item() > w[1].item() > w[2].item()  # reputation order preserved
+
+
+def test_trim_rejects_bad_k():
+    w      = torch.tensor([0.25, 0.25, 0.25, 0.25])
+    losses = torch.tensor([0.1, 0.2, 0.3, 0.4])
+    for bad in (4, 5):
+        try:
+            trim_weights(w, losses, trim_k=bad)
+            assert False, f"trim_k={bad} should have raised"
+        except ValueError:
+            pass
