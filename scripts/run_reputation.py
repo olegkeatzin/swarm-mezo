@@ -1,11 +1,19 @@
-"""Reputation-modulated consensus on non-IID RoBERTa+SST-2.
+"""Reputation-modulated consensus on RoBERTa+SST-2.
 
-Tests whether the working window β ∈ [1, 10] found in the synthetic E3
+Tests whether the working window β found in the synthetic E3
 (теория/swarm_mezo/) survives the move to a real LLM loss landscape.
 
-Same non-IID Dirichlet(α=0.5) partition, same N=8, same K=100 used in
-Day 3, so results are directly comparable to the {full, ring, star} runs
-already in outputs/day3_consensus.json.
+Two data regimes, selected by the SHARDING env var:
+  SHARDING=dirichlet (default) — non-IID Dirichlet(α=0.5) partition, the
+      realistic FL setting. Same partition / N=8 / K=100 as Day 3, so
+      comparable to outputs/day3_consensus.json. Output: day5_reputation.json
+  SHARDING=iid — uniform random split. Each agent's shard is an IID sample
+      of the global distribution, so the per-agent probe losses L_i become a
+      clean fitness signal — the assumption the §4 reputation theory rests on.
+      This is the principled testbed for the reputation hypothesis itself.
+      Output: day5_reputation_iid.json
+
+    SHARDING=iid uv run python scripts/run_reputation.py
 
 Sweep (β values span 4 orders of magnitude — the synthetic E3 working
 window depends on the typical inter-agent loss gap on the probe batch,
@@ -19,7 +27,7 @@ which is unknown a priori on RoBERTa+SST-2, so we bracket aggressively):
 Eval batch for fitness scoring: 32 samples from train[1000:1032] — disjoint
 from training data, no leakage into val.
 
-Results saved incrementally to outputs/day5_reputation.json.
+Results saved incrementally (idempotent — finished β's are skipped).
 
     uv run python scripts/run_reputation.py
 """
@@ -27,6 +35,7 @@ Results saved incrementally to outputs/day5_reputation.json.
 from datasets import load_dataset
 
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -62,6 +71,11 @@ LOCAL_STEPS     = 100
 DIRICHLET_ALPHA = 0.5
 GAMMA_R         = 1.0
 
+# Data regime: "dirichlet" (non-IID, realistic FL) or "iid" (control — clean
+# per-agent fitness signal, the assumption the §4 reputation theory rests on).
+SHARDING = os.environ.get("SHARDING", "dirichlet").lower()
+assert SHARDING in ("dirichlet", "iid"), f"bad SHARDING={SHARDING!r}"
+
 REPUTATION_CONFIGS = [
     {"beta": 0.0},      # baseline ≡ FedAvg-MeZO (control that the code path is correct)
     {"beta": 0.1},      # likely lower edge of the working window per E3
@@ -75,8 +89,11 @@ print(f"device: {DEVICE}")
 if DEVICE.type == "cuda":
     print(f"gpu:    {torch.cuda.get_device_name(0)}")
 
-OUT_PATH = ROOT / "outputs" / "day5_reputation.json"
+OUT_PATH = ROOT / "outputs" / (
+    "day5_reputation_iid.json" if SHARDING == "iid" else "day5_reputation.json"
+)
 OUT_PATH.parent.mkdir(exist_ok=True)
+print(f"sharding: {SHARDING}  ->  {OUT_PATH.name}")
 
 
 # ── data ──────────────────────────────────────────────────────────────────────
@@ -132,7 +149,21 @@ def _dirichlet_partition(n_agents, alpha, seed):
     return agent_indices
 
 
-_AGENT_INDICES = _dirichlet_partition(N_AGENTS, DIRICHLET_ALPHA, SEED)
+def _iid_partition(n_agents, seed):
+    """IID partition: uniform random split of train_ds. Every agent's shard is
+    an IID sample of the global SST-2 distribution, so the agents share one
+    objective and the probe loss L_i is a clean fitness signal — the premise
+    the §4 reputation theory is built on. Control for the Dirichlet run."""
+    rng = np.random.default_rng(seed)
+    idx = np.arange(len(train_ds))
+    rng.shuffle(idx)
+    return [chunk.tolist() for chunk in np.array_split(idx, n_agents)]
+
+
+if SHARDING == "iid":
+    _AGENT_INDICES = _iid_partition(N_AGENTS, SEED)
+else:
+    _AGENT_INDICES = _dirichlet_partition(N_AGENTS, DIRICHLET_ALPHA, SEED)
 
 
 def make_agent_loaders(n_agents):
@@ -189,8 +220,8 @@ def load_results():
             "total_steps": TOTAL_STEPS, "mezo_lr": MEZO_LR, "mezo_eps": MEZO_EPS,
             "eval_every": EVAL_EVERY, "n_agents": N_AGENTS,
             "local_steps": LOCAL_STEPS,
-            "sharding": "dirichlet",
-            "dirichlet_alpha": DIRICHLET_ALPHA,
+            "sharding": SHARDING,
+            "dirichlet_alpha": DIRICHLET_ALPHA if SHARDING == "dirichlet" else None,
             "gamma_r": GAMMA_R,
             "agent_class_balance": _agent_class_balance(N_AGENTS),
         },
@@ -216,7 +247,7 @@ def hist_to_dict(h):
 
 
 # ── warm up model cache ──────────────────────────────────────────────────────
-print("\nNon-IID per-agent class balance (neg, pos):")
+print(f"\nPer-agent class balance (neg, pos) — {SHARDING} sharding:")
 for i, (neg, pos) in enumerate(_agent_class_balance(N_AGENTS)):
     print(f"  agent {i}: neg={neg:3d}, pos={pos:3d}")
 
