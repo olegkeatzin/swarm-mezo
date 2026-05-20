@@ -41,8 +41,9 @@ uv run python scripts/verify_prompt.py        # проверка prompt-based п
   `scripts/verify_prompt.py`, `scripts/smoke_test_vmap.py`,
   `scripts/smoke_test_reputation.py`, `scripts/pilot_throughput.py`
 - `notebooks/01_sanity_visual.ipynb`, `02_day1_baselines.ipynb`,
-  `03_day2_fedavg.ipynb`, `04_day3_consensus.ipynb` (визуализаторы из
-  `outputs/*.json`)
+  `03_day2_fedavg.ipynb`, `04_day3_consensus.ipynb`,
+  `05_day4_reputation.ipynb` (визуализаторы из `outputs/*.json`),
+  `colab_run_reputation.ipynb` (прогон Day 4 в Colab)
 - теоретический документ `теория/swarm-mezo.md` + numpy-симуляция в
   `теория/swarm_mezo/` (E1, E2, E3 — все три гипотезы подтверждены)
 
@@ -177,7 +178,9 @@ swarm-mezo/
 │   ├── 01_sanity_visual.ipynb
 │   ├── 02_day1_baselines.ipynb
 │   ├── 03_day2_fedavg.ipynb
-│   └── 04_day3_consensus.ipynb
+│   ├── 04_day3_consensus.ipynb
+│   ├── 05_day4_reputation.ipynb
+│   └── colab_run_reputation.ipynb   # прогон Day 4 в Google Colab
 └── outputs/                    # JSON с результатами (gitignore)
 ```
 
