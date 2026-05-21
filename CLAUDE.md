@@ -22,6 +22,7 @@ uv run python scripts/run_fedavg.py           # Day 2: FedAvg-MeZO → outputs/d
 uv run python scripts/run_consensus.py        # Day 3: топологии на non-IID → outputs/day3_consensus.json
 uv run python scripts/run_reputation.py       # Day 4: репутационная W → outputs/day5_reputation.json
 uv run python scripts/run_trimmed.py          # Day 5: trimmed-mean W → outputs/day5_trimmed.json
+uv run python scripts/run_k10.py              # K=10: частый консенсус, β×trim → outputs/day6_k10.json
 uv run python scripts/verify_prompt.py        # проверка prompt-based подхода
 ```
 
@@ -44,9 +45,11 @@ uv run python scripts/verify_prompt.py        # проверка prompt-based п
 - `notebooks/01_sanity_visual.ipynb`, `02_day1_baselines.ipynb`,
   `03_day2_fedavg.ipynb`, `04_day3_consensus.ipynb`,
   `05_day4_reputation.ipynb`, `06_reputation_iid.ipynb`,
-  `07_conformity_control.ipynb` (визуализаторы из `outputs/*.json`),
+  `07_conformity_control.ipynb`, `08_trimmed_control.ipynb`
+  (визуализаторы из `outputs/*.json`),
   `colab_run_reputation.ipynb`, `colab_run_reputation_iid.ipynb`,
-  `colab_run_conformity.ipynb`, `colab_run_trimmed.ipynb` (прогоны в Colab)
+  `colab_run_conformity.ipynb`, `colab_run_trimmed.ipynb`,
+  `colab_run_k10.ipynb` (прогоны в Colab)
 - теоретический документ `теория/swarm-mezo.md` + numpy-симуляция в
   `теория/swarm_mezo/` (E1, E2, E3 — все три гипотезы подтверждены)
 
@@ -169,6 +172,7 @@ swarm-mezo/
 │   ├── run_consensus.py        # Day 3: ring/star/full на non-IID
 │   ├── run_reputation.py       # Day 4: β-sweep, ветки loss + conformity, IID через SHARDING=iid
 │   ├── run_trimmed.py          # Day 5: trimmed-mean W, IID, сетка β × trim_k∈{2,4}
+│   ├── run_k10.py              # K=10: частый консенсус (vs K=100), IID, β × trim_k∈{0,2}
 │   ├── smoke_test_vmap.py, smoke_test_reputation.py
 │   ├── verify_prompt.py, pilot_throughput.py
 ├── tests/
@@ -187,10 +191,12 @@ swarm-mezo/
 │   ├── 05_day4_reputation.ipynb
 │   ├── 06_reputation_iid.ipynb       # Day 4 IID-контроль
 │   ├── 07_conformity_control.ipynb   # ветка loss vs conformity
+│   ├── 08_trimmed_control.ipynb      # Day 5 trimmed-mean: сетка β × trim_k
 │   ├── colab_run_reputation.ipynb    # прогон Day 4 в Google Colab
 │   ├── colab_run_reputation_iid.ipynb # прогон Day 4 IID-контроля в Colab
 │   ├── colab_run_conformity.ipynb    # прогон conformity-ветки в Colab
-│   └── colab_run_trimmed.ipynb       # прогон trimmed-mean ветки в Colab
+│   ├── colab_run_trimmed.ipynb       # прогон trimmed-mean ветки в Colab
+│   └── colab_run_k10.ipynb           # прогон K=10 (частый консенсус) в Colab
 └── outputs/                    # JSON с результатами (gitignore)
 ```
 
