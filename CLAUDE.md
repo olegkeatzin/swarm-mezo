@@ -45,7 +45,8 @@ uv run python scripts/verify_prompt.py        # проверка prompt-based п
 - `notebooks/01_sanity_visual.ipynb`, `02_day1_baselines.ipynb`,
   `03_day2_fedavg.ipynb`, `04_day3_consensus.ipynb`,
   `05_day4_reputation.ipynb`, `06_reputation_iid.ipynb`,
-  `07_conformity_control.ipynb`, `08_trimmed_control.ipynb`
+  `07_conformity_control.ipynb`, `08_trimmed_control.ipynb`,
+  `09_k10_control.ipynb`
   (визуализаторы из `outputs/*.json`),
   `colab_run_reputation.ipynb`, `colab_run_reputation_iid.ipynb`,
   `colab_run_conformity.ipynb`, `colab_run_trimmed.ipynb`,
@@ -192,6 +193,7 @@ swarm-mezo/
 │   ├── 06_reputation_iid.ipynb       # Day 4 IID-контроль
 │   ├── 07_conformity_control.ipynb   # ветка loss vs conformity
 │   ├── 08_trimmed_control.ipynb      # Day 5 trimmed-mean: сетка β × trim_k
+│   ├── 09_k10_control.ipynb          # K=10 частый консенсус: визуализатор day6_k10.json
 │   ├── colab_run_reputation.ipynb    # прогон Day 4 в Google Colab
 │   ├── colab_run_reputation_iid.ipynb # прогон Day 4 IID-контроля в Colab
 │   ├── colab_run_conformity.ipynb    # прогон conformity-ветки в Colab
